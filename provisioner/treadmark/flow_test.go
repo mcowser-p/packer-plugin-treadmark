@@ -125,16 +125,16 @@ func TestLinuxFlowGolden(t *testing.T) {
 	}
 
 	steps := []mockStep{
-		{0, "Linux x86_64\n"}, // probe
-		{0, ""},               // mkdir staging
-		{0, ""},               // install deb
-		{0, ""},               // install config
+		{0, "Linux x86_64\n"},     // probe
+		{0, ""},                   // mkdir staging
+		{0, ""},                   // install deb
+		{0, ""},                   // install config
 		{0, "treadmark 0.11.0\n"}, // --version
-		{0, ""},               // files init
-		{0, ""},               // files scan --report
-		{0, infoJSON(dbSHAHex)}, // baseline info
-		{0, ""},               // cp/chmod staging copy
-		{0, ""},               // deferred staging cleanup
+		{0, ""},                   // files init
+		{0, ""},                   // files scan --report
+		{0, infoJSON(dbSHAHex)},   // baseline info
+		{0, ""},                   // cp/chmod staging copy
+		{0, ""},                   // deferred staging cleanup
 	}
 	comm := newMockComm(t, steps, map[string][]byte{
 		"/var/tmp/packer-treadmark/baseline.db":    dbBytes,

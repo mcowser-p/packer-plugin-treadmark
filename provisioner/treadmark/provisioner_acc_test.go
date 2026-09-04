@@ -34,7 +34,7 @@ func TestAccLinuxDocker(t *testing.T) {
 	}
 	outDir := filepath.Join(t.TempDir(), "bundle")
 
-	run := func(args ...string) {
+	run := func(fatal bool, args ...string) {
 		t.Helper()
 		cmd := exec.Command("packer", args...)
 		cmd.Dir = tplDir
@@ -43,13 +43,20 @@ func TestAccLinuxDocker(t *testing.T) {
 		cmd.Stdout = &buf
 		cmd.Stderr = &buf
 		if err := cmd.Run(); err != nil {
+			if !fatal {
+				t.Logf("packer %v failed (tolerated): %v\n%s", args, err, buf.String())
+				return
+			}
 			t.Fatalf("packer %v failed: %v\n%s", args, err, buf.String())
 		}
 		t.Logf("packer %v:\n%s", args, buf.String())
 	}
 
-	run("init", ".")
-	run("build", ".")
+	// init is best-effort: until the first GitHub release exists, resolving
+	// the treadmark plugin 404s even though `make dev` installed it locally.
+	// If a required plugin is genuinely missing, the build fails right after.
+	run(false, "init", ".")
+	run(true, "build", ".")
 
 	for _, f := range []string{"baseline.db", "baseline-info.json", "init-scan.json", "metadata.json", "SHA256SUMS"} {
 		if fi, err := os.Stat(filepath.Join(outDir, f)); err != nil || fi.Size() == 0 {

@@ -54,9 +54,9 @@ func TestPSQuote(t *testing.T) {
 
 func TestParseVersion(t *testing.T) {
 	cases := map[string]string{
-		"treadmark 0.11.0":       "0.11.0",
-		"treadmark v0.11.0":      "0.11.0",
-		"treadmark 0.11.0\n":     "0.11.0",
+		"treadmark 0.11.0":        "0.11.0",
+		"treadmark v0.11.0":       "0.11.0",
+		"treadmark 0.11.0\n":      "0.11.0",
 		"something else entirely": "something else entirely",
 	}
 	for in, want := range cases {

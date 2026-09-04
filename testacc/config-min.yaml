@@ -1,0 +1,11 @@
+# Minimal treadmark config for the docker acceptance test: fast walk, no
+# content capture.
+db_path: /var/lib/treadmark/baseline.db
+paths:
+  - /etc
+exclude:
+  - /etc/mtab
+  - /etc/resolv.conf
+  - /etc/hostname
+  - /etc/hosts
+store_content: false

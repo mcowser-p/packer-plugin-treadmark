@@ -1,0 +1,54 @@
+<!-- Code generated from the comments of the Config struct in post-processor/treadmark/post-processor.go; DO NOT EDIT MANUALLY -->
+
+- `mode` (string) - "collect" (default) wraps the provisioner's bundle; "offline"
+  captures a baseline host-side from the built image via guestmount +
+  `treadmark files init --root` (Linux guest images only).
+
+- `output_dir` (string) - Bundle directory: where the provisioner wrote (collect) or where to
+  write (offline). Defaults to treadmark-output/<build name>; must
+  match the provisioner's output_dir in collect mode.
+
+- `allow_missing_baseline` (bool) - collect: tolerate a missing baseline.db instead of failing. The
+  default failure catches provisioner/post-processor ordering and
+  output_dir mismatches.
+
+- `image_path` (string) - offline: image to mount. Defaults to the first *.qcow2 in the input
+  artifact's files.
+
+- `config_source` (string) - offline (required): host-side treadmark config (YAML or JSON) with
+  the paths/excludes to baseline. The plugin writes a temp copy with
+  db_path pointed into output_dir and any report block stripped —
+  treadmark has no --db flag, the config is the only way to place the
+  DB on the host.
+
+- `treadmark_binary` (string) - offline: treadmark binary on the build host. Default: "treadmark"
+  found on PATH.
+
+- `offline_strategy` (string) - offline: capture strategy; only "guestmount" is implemented.
+
+- `libguestfs_backend` (string) - offline: LIBGUESTFS_BACKEND for guestmount (default "direct",
+  matching the holy-qcow evidence tooling).
+
+- `extra_env` (map[string]string) - offline: extra environment for guestmount/treadmark. Overrides the
+  auto-pinned SUPERMIN_KERNEL / SUPERMIN_MODULES.
+
+- `use_sudo` (bool) - offline: run guestmount/treadmark under sudo (fallback for FUSE
+  policy or unreadable kernels).
+
+- `mount_timeout` (duration string | ex: "1h5m2s") - offline: guestmount/guestunmount timeout (default 5m).
+
+- `init_timeout` (duration string | ex: "1h5m2s") - offline: per-treadmark-command timeout (default 30m).
+
+- `skip_verify` (bool) - offline: skip the post-init verification scan.
+
+- `on_drift` (string) - Drift policy for verification scans: "error" (default) or "warn".
+
+- `report_formats` ([]string) - offline: report formats written from the verification scan into
+  output_dir (json, ndjson, csv, sarif, md, html, txt).
+
+- `metadata` (map[string]string) - Extra key/value pairs merged into metadata.json "custom"; keys the
+  provisioner already recorded win.
+
+- `s3` ([]S3Config) - Optional upload destinations; each s3 block is one bucket.
+
+<!-- End of code generated from the comments of the Config struct in post-processor/treadmark/post-processor.go; -->

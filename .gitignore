@@ -1,0 +1,8 @@
+# plugin binary (repo-root build artifact)
+/packer-plugin-treadmark
+dist/
+crash.log
+*.test
+treadmark-output/
+testacc/output/
+example/*/output/

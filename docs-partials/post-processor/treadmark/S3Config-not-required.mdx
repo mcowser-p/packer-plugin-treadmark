@@ -1,0 +1,22 @@
+<!-- Code generated from the comments of the S3Config struct in post-processor/treadmark/post-processor.go; DO NOT EDIT MANUALLY -->
+
+- `prefix` (string) - Key prefix for uploaded bundle files (default "treadmark/").
+  Interpolate build variables in HCL for per-image prefixes, e.g.
+  "treadmark/${local.name}/".
+
+- `region` (string) - AWS region; empty defers to the default config chain.
+
+- `endpoint` (string) - Endpoint override for S3-compatible stores (MinIO etc.).
+
+- `force_path_style` (bool) - Use path-style addressing (usually wanted with endpoint overrides).
+
+- `storage_class` (string) - Storage class; empty means the service default (STANDARD).
+
+- `sse` (string) - Server-side encryption: "", "AES256", or "aws:kms".
+
+- `kms_key_id` (string) - KMS key id/arn used when sse = "aws:kms".
+
+- `include_image` (bool) - Also upload the input image artifact (off by default; note S3
+  PutObject caps single objects at 5 GiB).
+
+<!-- End of code generated from the comments of the S3Config struct in post-processor/treadmark/post-processor.go; -->

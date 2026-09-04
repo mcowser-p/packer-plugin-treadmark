@@ -1,0 +1,104 @@
+# treadmark config for WINDOWS GOLDEN-IMAGE builds.
+#
+# treadmark's shipped Windows config (packaging/treadmark-windows.yaml) plus
+# excludes for what sysprep /generalize and first-boot specialize rewrite
+# AFTER the baseline is captured (holy-qcow runs sysprep as the
+# shutdown_command, so nothing can capture after it). File paths follow
+# treadmark's golden-baseline-workflow.md Windows guidance.
+db_path: C:\ProgramData\Treadmark\baseline.db
+
+paths:
+  - C:\Program Files
+  - C:\Program Files (x86)
+  - C:\Windows\System32\drivers\etc
+  - C:\Windows\System32\Tasks
+  - C:\Windows\Tasks
+  - C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup
+
+exclude:
+  # High-churn OS/state
+  - C:\Windows\System32\config\
+  - C:\Windows\System32\LogFiles\
+  - C:\Windows\System32\catroot2\
+  - C:\Windows\System32\spool\
+  - C:\Windows\ServiceProfiles\
+  - C:\Windows\Temp\
+  - \Prefetch\
+  - \WinSxS\
+  # Program Files churn
+  - \Update\
+  - \Updates\
+  - \cache\
+  - \Cache\
+  - \logs\
+  - \Logs\
+  - \Crashpad\
+  - \GPUCache\
+  - \Code Cache\
+  - \Service Worker\
+  - \blob_storage\
+  - node_modules
+  - __pycache__
+  - \NativeImages
+  - \.git\
+  - \telemetry\
+  # Package / installer bookkeeping
+  - C:\ProgramData\Package Cache\
+  - C:\Program Files\WindowsApps\
+  # --- Golden-image: rewritten by sysprep generalize/specialize and
+  #     first-boot on every clone ---
+  - \Windows\Panther\
+  - \ProgramData\Microsoft\Crypto\RSA\MachineKeys\
+  - \Windows\System32\config\TxR\
+  - \Windows\System32\spp\store\
+
+exclude_extensions:
+  - .log
+  - .tmp
+  - .etl
+  - .evtx
+  - .pf
+  - .dmp
+  - .pdb
+  - .mui
+  - .bak
+  - .old
+
+follow_symlinks: false
+hash_algorithm: sha256
+max_file_size_mb: 500
+
+registry_keys:
+  # Autoruns
+  - HKLM\Software\Microsoft\Windows\CurrentVersion\Run
+  - HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnce
+  - HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnceEx
+  - HKLM\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Run
+  - HKLM\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\RunOnce
+  - HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+  - HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce
+  # Services (identity: ImagePath / Start / ObjectName)
+  - HKLM\System\CurrentControlSet\Services
+  # Logon / injection hijacks
+  - HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon
+  - HKLM\Software\Microsoft\Windows NT\CurrentVersion\Image File Execution Options
+  - HKLM\Software\Microsoft\Windows NT\CurrentVersion\Windows
+  - HKLM\Software\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Windows
+  - HKLM\Software\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects
+  # Policy and authentication
+  - HKLM\Software\Microsoft\Windows\CurrentVersion\Policies
+  - HKLM\Software\Policies
+  - HKLM\System\CurrentControlSet\Control\Lsa
+  - HKLM\System\CurrentControlSet\Control\SecurityProviders
+
+registry_recursive: true
+registry_max_depth: 3
+# Expect to grow this list from real clone deploys: sysprep specialize
+# rewrites parts of CurrentControlSet (device/service state) that vary
+# per-clone. Start empty, run `treadmark compare against` on a fresh clone,
+# and move the legitimately-volatile keys here.
+registry_exclude: []
+registry_skip_volatile: true
+
+store_content: true
+store_content_max_kb: 256

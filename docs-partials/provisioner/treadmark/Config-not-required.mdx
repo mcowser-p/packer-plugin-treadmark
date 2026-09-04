@@ -1,0 +1,81 @@
+<!-- Code generated from the comments of the Config struct in provisioner/treadmark/provisioner.go; DO NOT EDIT MANUALLY -->
+
+- `os` (string) - Guest operating system: "auto" (default), "linux", or "windows".
+  Auto-detection probes `uname -s -m`, then falls back to `cmd /c echo
+  %OS%`.
+
+- `arch` (string) - Guest CPU architecture, Go-style: "amd64" or "arm64". Detected from
+  the OS probe when unset; Windows defaults to amd64.
+
+- `install_method` (string) - How to install treadmark in the guest: "auto" (default), "deb",
+  "rpm", "binary", "msi", or "none" (treadmark is already installed).
+  Auto picks deb/rpm/binary from /etc/debian_version and
+  /etc/redhat-release, and msi on Windows.
+
+- `treadmark_version` (string) - treadmark release to install, without the leading "v" (e.g.
+  "0.11.0"). "latest" (default) resolves via the GitHub API.
+
+- `package_path` (string) - Path to a local .deb/.rpm/.msi/binary to upload instead of
+  downloading a release.
+
+- `download_url_base` (string) - Base URL for release downloads; override for air-gapped mirrors.
+  Defaults to the treadmark GitHub releases URL. When overridden,
+  treadmark_version must be pinned (no "latest").
+
+- `disable_checksum_verify` (bool) - Skip SHA256SUMS verification of downloaded release assets.
+
+- `treadmark_path` (string) - Full path of the treadmark executable in the guest. Defaults to
+  /usr/bin/treadmark (Linux) or C:\Program Files\Treadmark\treadmark.exe
+  (Windows). Always invoked by full path.
+
+- `config_path` (string) - In-guest config file used by every treadmark command. Defaults to
+  /etc/treadmark/treadmark.yaml (Linux) or
+  C:\ProgramData\Treadmark\treadmark.yaml (Windows).
+
+- `config_source` (string) - Local treadmark config (YAML or JSON) uploaded to config_path before
+  the baseline is captured. Required when install_method is "binary"
+  (the standalone binary ships no config); with "none", the guest must
+  already have a config at config_path if this is unset.
+
+- `scope` (string) - What to baseline: "files" (Linux default), "all" (Windows default:
+  files + registry), or "registry" (Windows only).
+
+- `skip_verify` (bool) - Skip the post-init verification scan. The scan proves the baseline
+  is readable and that nothing changed mid-capture; it is also the
+  only way report files are produced.
+
+- `on_drift` (string) - What to do when the verification scan exits 1 (drift): "error"
+  (default, fail the build) or "warn". Exit 2 always fails the build.
+
+- `report_formats` ([]string) - Report formats to write from the verification scan (one `treadmark
+  files scan --report init-scan.<ext>` per entry — each is a full
+  filesystem walk). Valid: json, ndjson, csv, sarif, md, html, txt.
+  On Windows the registry half is additionally captured as
+  registry-scan.json.
+
+- `skip_download` (bool) - Skip downloading the bundle to the host (the baseline then only
+  ships inside the image).
+
+- `output_dir` (string) - Host directory receiving the bundle. Defaults to
+  treadmark-output/<build name>.
+
+- `remove_from_image` (bool) - Delete the baseline from the guest after downloading it
+  (capture-only mode; by default the baseline ships in the image so
+  clones can self-verify).
+
+- `disable_sudo` (bool) - Do not prefix guest commands with sudo (e.g. the docker builder,
+  which runs as root). Linux only; ignored on Windows.
+
+- `staging_dir` (string) - Guest staging directory for package upload and world-readable copies
+  of the bundle. Data only — nothing is ever executed from it (CIS
+  hardening mounts /tmp noexec; /var/tmp may be too). Defaults to
+  /var/tmp/packer-treadmark (Linux) or
+  C:\Windows\Temp\packer-treadmark (Windows). Removed afterwards.
+
+- `init_timeout` (duration string | ex: "1h5m2s") - Timeout for each long-running treadmark command (init and each
+  scan). Defaults to 15m on Linux, 45m on Windows.
+
+- `metadata` (map[string]string) - Extra key/value pairs recorded under "custom" in metadata.json
+  (build_number, distro, ...).
+
+<!-- End of code generated from the comments of the Config struct in provisioner/treadmark/provisioner.go; -->

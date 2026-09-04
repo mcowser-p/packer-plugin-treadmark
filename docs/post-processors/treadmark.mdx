@@ -1,0 +1,64 @@
+# Treadmark Post-Processor
+
+Type: `treadmark`
+
+Finalizes a treadmark baseline bundle and returns it as part of the build
+artifact; optionally uploads it to S3. Always returns
+`(artifact, keep=true, forceOverride=true)` — the input image artifact can
+never be discarded by this step (same contract as the `manifest`
+post-processor). Chain it before `manifest` and manifest.json records the
+image and baseline files together.
+
+## Modes
+
+**collect** (default): picks up the bundle the `treadmark` provisioner wrote
+to `output_dir`, finalizes `metadata.json` + `SHA256SUMS`, and wraps input
+artifact + bundle into one artifact. Fails if `baseline.db` is missing
+(catches provisioner ordering / `output_dir` mismatches) unless
+`allow_missing_baseline = true`.
+
+**offline**: captures the baseline on the build host from the finished image
+— `guestmount -a <image> -i --ro` then `treadmark files init --config <tmp>
+--root <mnt>` — leaving the image untouched and baselining the exact bits
+that ship (post-shutdown/sysprep). Linux guest images only. Requires
+`guestmount` (libguestfs) and `treadmark` on the build host. treadmark has
+no `--db` flag, so the plugin writes a temp copy of your `config_source`
+with `db_path` pointed into `output_dir` (re-encoded as JSON) and any
+`report` block stripped. `SUPERMIN_KERNEL`/`SUPERMIN_MODULES` are auto-
+pinned to the running kernel; `extra_env` overrides them.
+
+## S3 upload
+
+```hcl
+post-processor "treadmark" {
+  output_dir = "build/output/${local.name}/treadmark"
+  s3 {
+    bucket = "golden-evidence-123456789012-us-east-1"
+    prefix = "treadmark/${local.name}/"
+  }
+}
+```
+
+Default AWS credential chain; the bucket must already exist (HeadBucket
+check — buckets are never created); `endpoint` + `force_path_style` support
+MinIO and other S3-compatible stores; per-object metadata carries the file's
+sha256. `metadata.json` is written (with its own predicted object keys) and
+`SHA256SUMS` finalized *before* upload, so the uploaded sums cover exactly
+what lands in the bucket. `include_image = true` additionally uploads the
+input artifact's files (note the 5 GiB single-PutObject cap).
+
+## Configuration
+
+Optional:
+
+@include 'post-processor/treadmark/Config-not-required.mdx'
+
+### `s3` block
+
+Required:
+
+@include 'post-processor/treadmark/S3Config-required.mdx'
+
+Optional:
+
+@include 'post-processor/treadmark/S3Config-not-required.mdx'

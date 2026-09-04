@@ -1,0 +1,90 @@
+# treadmark config for LINUX GOLDEN-IMAGE builds.
+#
+# This is treadmark's shipped /etc/treadmark/treadmark.yaml with two changes:
+#   1. The "golden-baseline / cross-host compares" exclude block is
+#      UNCOMMENTED — per-host identity files (machine-id, host keys,
+#      hostname) are pure noise when every clone compares against this
+#      image's baseline. See treadmark's docs/golden-baseline-workflow.md.
+#   2. Packer build residue is excluded — holy-qcow's shutdown_command
+#      deletes the `packer` user and its sudoers drop-in AFTER the baseline
+#      is captured, so a clone's first scan would otherwise report their
+#      absence as drift.
+db_path: /var/lib/treadmark/baseline.db
+
+paths:
+  - /etc
+  - /bin
+  - /sbin
+  - /usr/bin
+  - /usr/sbin
+  - /usr/local/bin
+  - /usr/local/sbin
+  - /usr/lib/systemd
+  - /var/spool/cron
+  - /opt
+  - /home
+  - /root
+  - /boot
+
+exclude:
+  # Runtime state rewritten by the OS itself
+  - /etc/mtab
+  - /etc/mtab.fuselock
+  - /etc/resolv.conf
+  - /etc/ld.so.cache
+  - /etc/adjtime
+  - /etc/.pwd.lock
+  # Package-manager bookkeeping
+  - /var/lib/dpkg/
+  - /var/lib/apt/
+  - /var/lib/rpm/
+  - /var/lib/dnf/
+  - /var/lib/yum/
+  - /var/lib/PackageKit/
+  - /var/lib/snapd/
+  - /var/lib/man-db/
+  - /var/lib/systemd/
+  - /var/cache/
+  # Logs and scratch
+  - /var/log
+  - /tmp
+  - /run/
+  - __pycache__
+  # Backup / temp droppings from package tools and editors
+  - .dpkg-old
+  - .dpkg-new
+  - .dpkg-dist
+  - .rpmnew
+  - .rpmsave
+  - .ucf-old
+  - .ucf-new
+  # Initramfs images: regenerated every kernel update (vmlinuz stays watched)
+  - /boot/initrd
+  - /boot/initramfs
+  # Home-directory noise
+  - /.cache/
+  - /.local/share/Trash/
+  - /snap/
+  # --- Golden-baseline block (uncommented for image builds) ---
+  - /etc/machine-id
+  - /var/lib/dbus/machine-id
+  - /etc/hostname
+  - /etc/hosts
+  - /etc/ssh/ssh_host_
+  - /etc/cloud/
+  - /var/lib/cloud/
+  - /etc/vconsole.conf
+  # --- Packer build residue removed after capture ---
+  - /home/packer
+  - /etc/sudoers.d/90-cloud-init-users
+
+exclude_extensions: [.log, .tmp, .swp, .swo, .pyc, .pyo]
+follow_symlinks: false
+hash_algorithm: sha256
+max_file_size_mb: 500
+
+# Unified diffs of changed configs on scan. The baseline then contains
+# snapshots of small text files under the monitored paths — treat the DB as
+# sensitive (it ships inside the image at /var/lib/treadmark, 0700 root).
+store_content: true
+store_content_max_kb: 256

@@ -1,0 +1,91 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: ".go-version"
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - run: go vet ./...
+      - run: go test -race ./... -timeout=3m
+
+  generate-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: ".go-version"
+      - name: Add GOPATH/bin to PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - run: make generate
+      - name: Generated code is committed
+        run: git diff --exit-code
+
+  plugin-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: ".go-version"
+      - name: Add GOPATH/bin to PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - run: make plugin-check
+
+  # Real `packer build` with the docker builder: installs treadmark from its
+  # GitHub release inside an ubuntu container, captures a baseline, downloads
+  # the bundle, and runs the collect post-processor.
+  acceptance:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: ".go-version"
+      - uses: hashicorp/setup-packer@v3
+        with:
+          version: "1.16.0"
+      - run: make dev
+      - run: PACKER_ACC=1 go test -count 1 -v ./provisioner/treadmark -run TestAccLinuxDocker -timeout=30m
+
+  # The s3 uploader against real wire traffic: MinIO with endpoint override +
+  # path-style addressing.
+  s3-minio:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: ".go-version"
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            quay.io/minio/minio server /data
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:9000/minio/health/ready && exit 0
+            sleep 2
+          done
+          echo "MinIO did not become ready" && docker logs minio && exit 1
+      - name: Run MinIO integration test
+        env:
+          AWS_ACCESS_KEY_ID: minioadmin
+          AWS_SECRET_ACCESS_KEY: minioadmin
+          AWS_REGION: us-east-1
+          TREADMARK_S3_TEST_ENDPOINT: http://127.0.0.1:9000
+        run: go test -count 1 -v ./internal/s3put -run TestMinIOIntegration -timeout=5m

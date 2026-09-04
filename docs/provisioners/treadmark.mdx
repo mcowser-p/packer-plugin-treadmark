@@ -1,0 +1,48 @@
+# Treadmark Provisioner
+
+Type: `treadmark`
+
+Installs [treadmark](https://github.com/mcowser-p/treadmark) inside the
+guest being built, captures a file-integrity baseline (`treadmark files
+init`; `all init` on Windows for files + registry), verifies it with a scan,
+records provenance, and downloads the bundle (baseline.db, reports,
+baseline-info.json, metadata.json, SHA256SUMS) to the build host.
+
+The baseline also stays inside the image (default
+`/var/lib/treadmark/baseline.db`, `C:\ProgramData\Treadmark\baseline.db`),
+so clones can run `treadmark files scan` from first boot. Set
+`remove_from_image = true` for capture-only builds.
+
+## Basic example
+
+```hcl
+provisioner "treadmark" {
+  treadmark_version = "0.11.0"
+  config_source     = "${path.root}/config/golden-linux.yaml"
+  report_formats    = ["json"]
+  output_dir        = "build/output/${local.name}/treadmark"
+}
+```
+
+## Behavior notes
+
+- Commands always invoke the treadmark binary by **full path** and never
+  execute anything from the staging directory — safe on CIS-hardened images
+  where `/tmp` (and possibly `/var/tmp`) are mounted noexec.
+- The verification scan is also how report files get produced (`init`
+  accepts no `--report`). Exit 0 is expected; exit 1 (drift) fails the build
+  under the default `on_drift = "error"` — a drift seconds after init means
+  the config monitors something volatile. Exit 2 always fails.
+- Windows: reports come from `files scan --report` plus a
+  `registry scan --json` capture (the `all` subcommand accepts no
+  `--report`); msiexec exit 3010 (reboot required) is treated as success.
+- Downloads: the baseline directory is root-0700, so a world-readable copy
+  is staged in `staging_dir` for the SSH user, downloaded, then the staging
+  dir is removed. The downloaded DB's sha256 is cross-checked against the
+  guest-reported `baseline info` digest.
+
+## Configuration
+
+Optional (all attributes have working defaults):
+
+@include 'provisioner/treadmark/Config-not-required.mdx'

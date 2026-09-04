@@ -1,0 +1,53 @@
+# Release configuration for `packer init`-installable artifacts: per-platform
+# zips named with the plugin API version (x5.0), a SHA256SUMS file, and a GPG
+# detached signature of it. Driven by .github/workflows/release.yml, which
+# supplies API_VERSION and GPG_FINGERPRINT.
+version: 2
+project_name: packer-plugin-treadmark
+
+env:
+  - CGO_ENABLED=0
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - "-s -w -X {{ .ModulePath }}/version.Version={{ .Version }} -X {{ .ModulePath }}/version.VersionPrerelease="
+    binary: "{{ .ProjectName }}_v{{ .Version }}_{{ .Env.API_VERSION }}_{{ .Os }}_{{ .Arch }}"
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats: [zip]
+    files:
+      - none*
+    name_template: "{{ .ProjectName }}_v{{ .Version }}_{{ .Env.API_VERSION }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "{{ .ProjectName }}_v{{ .Version }}_SHA256SUMS"
+  algorithm: sha256
+
+signs:
+  - artifacts: checksum
+    args:
+      - "--batch"
+      - "-u"
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - "--output"
+      - "${signature}"
+      - "--detach-sign"
+      - "${artifact}"
+
+changelog:
+  disable: true

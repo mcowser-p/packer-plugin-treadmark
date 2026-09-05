@@ -134,6 +134,7 @@ func TestLinuxFlowGolden(t *testing.T) {
 		{0, ""},                   // files scan --report
 		{0, infoJSON(dbSHAHex)},   // baseline info
 		{0, ""},                   // cp/chmod staging copy
+		{0, ""},                   // chmod reports world-readable
 		{0, ""},                   // deferred staging cleanup
 	}
 	comm := newMockComm(t, steps, map[string][]byte{
@@ -157,6 +158,7 @@ func TestLinuxFlowGolden(t *testing.T) {
 		`sudo "/usr/bin/treadmark" files scan --config "/etc/treadmark/treadmark.yaml" --report "/var/tmp/packer-treadmark/init-scan.json"`,
 		`sudo "/usr/bin/treadmark" baseline info --config "/etc/treadmark/treadmark.yaml" --json`,
 		`sudo sh -c 'cp "/var/lib/treadmark/baseline.db" "/var/tmp/packer-treadmark/baseline.db" && chmod 0644 "/var/tmp/packer-treadmark/baseline.db"'`,
+		`sudo sh -c 'chmod 0644 "/var/tmp/packer-treadmark"/init-scan.*'`,
 		`sudo sh -c 'rm -rf "/var/tmp/packer-treadmark"'`,
 	}
 	if len(comm.commands) != len(want) {

@@ -180,6 +180,17 @@ func (p *Provisioner) provisionLinux(ctx context.Context, r *runner, rd *resolve
 			return nil, err
 		}
 		res.baselineOnHost = true
+		if len(res.reports) > 0 {
+			// The scan writes reports into the staging dir itself, running
+			// under sudo with the CALLING session's umask -- on CIS-hardened
+			// guests (pam umask 027) they land 0640 root:root and the
+			// connecting user's scp is denied. Make them world-readable
+			// explicitly, same treatment as the staged baseline copy.
+			if err := mustRun("staging reports for download",
+				sh(fmt.Sprintf(`chmod 0644 "%s"/init-scan.*`, rd.stagingDir)), time.Minute); err != nil {
+				return nil, err
+			}
+		}
 		for _, rel := range res.reports {
 			if err := r.downloadFile(path.Join(rd.stagingDir, rel), filepath.Join(c.OutputDir, rel)); err != nil {
 				return nil, err

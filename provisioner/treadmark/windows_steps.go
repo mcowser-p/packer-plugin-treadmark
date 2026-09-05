@@ -108,16 +108,39 @@ func (p *Provisioner) provisionWindows(ctx context.Context, r *runner, rd *resol
 		if err := r.uploadFile(pkgPath, fslash(remoteMsi)); err != nil {
 			return nil, err
 		}
+		// On failure the script dumps the log tail into the build output
+		// BEFORE returning: the deferred staging cleanup deletes the log
+		// file, so this stream is the only place the evidence survives.
+		//
+		// Write-Raw, not Write-Output: these scripts run under Windows
+		// PowerShell 5.1 on a raw SSH exec channel with no console, where
+		// the host's redirected-output encoding is environment-dependent
+		// (code page and host quirks decide what Write-Output emits). An
+		// evidence dump that reaches the packer log mangled is worthless,
+		// so the script writes UTF-8 bytes straight to the stdout stream,
+		// bypassing the host encoder; treadmark.exe's own output is plain
+		// UTF-8 over the same channel already.
 		install := fmt.Sprintf(`$ErrorActionPreference = 'Stop'
+function Write-Raw([string]$s) {
+  $b = [Text.Encoding]::UTF8.GetBytes($s + "`+"`"+`n")
+  $o = [Console]::OpenStandardOutput(); $o.Write($b, 0, $b.Length); $o.Flush()
+}
 $p = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i',%s,'/qn','/norestart','/l*v',%s) -Wait -PassThru
+Write-Raw ('msiexec exit code: ' + $p.ExitCode)
 if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {
-  Write-Error ('msiexec exited ' + $p.ExitCode + '; see the install log in the staging dir')
+  if (Test-Path %s) {
+    Write-Raw '--- msi-install.log (last 120 lines) ---'
+    Write-Raw ((Get-Content %s -Tail 120) -join "`+"`"+`n")
+    Write-Raw '--- end msi-install.log ---'
+  } else {
+    Write-Raw 'msiexec wrote no install log'
+  }
   exit 1
 }
 exit 0
-`, pq(remoteMsi), pq(msiLog))
+`, pq(remoteMsi), pq(msiLog), pq(msiLog), pq(msiLog))
 		if err := mustPS("installing treadmark MSI", "install", install, 10*time.Minute); err != nil {
-			return nil, fmt.Errorf("%w (msiexec log was at %s; exit 1618 = another install in progress, 1603 = fatal — rerun with the log preserved via skip cleanup)", err, msiLog)
+			return nil, fmt.Errorf("%w — msiexec exit 1618 = another install in progress, 1603 = fatal; the install-log tail is in the build output above", err)
 		}
 	}
 

@@ -372,6 +372,12 @@ func TestWindowsFlowGolden(t *testing.T) {
 		`'/i','C:\Windows\Temp\packer-treadmark\treadmark-0.11.0.msi'`,
 		"'/qn','/norestart','/l*v'",
 		"3010",
+		// Failure evidence: the log tail must be dumped to the build output
+		// before the deferred staging cleanup deletes the log file.
+		`Get-Content 'C:\Windows\Temp\packer-treadmark\msi-install.log' -Tail 120`,
+		// ...and emitted as raw UTF-8 bytes: PS 5.1 host output over a raw
+		// SSH exec channel is UTF-16LE, unreadable in the packer log.
+		"[Console]::OpenStandardOutput()",
 	} {
 		if !strings.Contains(install, frag) {
 			t.Errorf("install.ps1 missing %q:\n%s", frag, install)
@@ -395,5 +401,46 @@ func TestWindowsFlowGolden(t *testing.T) {
 	}
 	if sc.OS != "windows" || sc.Scope != "all" || sc.Baseline.SHA256 != dbSHAHex {
 		t.Fatalf("sidecar: %+v baseline %+v", sc, sc.Baseline)
+	}
+}
+
+func TestWindowsFlowMSIFailure(t *testing.T) {
+	pkgDir := t.TempDir()
+	msi := filepath.Join(pkgDir, "treadmark-0.11.0.msi")
+	if err := os.WriteFile(msi, []byte("fake-msi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &Provisioner{}
+	if err := p.Prepare(map[string]interface{}{
+		"os":             "windows",
+		"install_method": "msi",
+		"package_path":   msi,
+		"output_dir":     filepath.Join(t.TempDir(), "out"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// install.ps1 exits 1 (its msiexec branch already dumped the log tail to
+	// the UI stream); the provisioner must fail with the triage hint and
+	// still run the deferred staging cleanup.
+	steps := []mockStep{
+		{0, ""}, // staging New-Item
+		{1, ""}, // install.ps1: msiexec failed
+		{0, ""}, // deferred staging cleanup
+	}
+	comm := newMockComm(t, steps, nil)
+	err := p.Provision(context.Background(), testUi(), comm, map[string]interface{}{})
+	if err == nil {
+		t.Fatal("want install failure, got success")
+	}
+	for _, frag := range []string{"installing treadmark MSI failed (exit 1)", "1618", "1603"} {
+		if !strings.Contains(err.Error(), frag) {
+			t.Errorf("error missing %q: %v", frag, err)
+		}
+	}
+	last := comm.commands[len(comm.commands)-1]
+	if !strings.Contains(last, "Remove-Item") {
+		t.Errorf("staging cleanup did not run; last command: %s", last)
 	}
 }

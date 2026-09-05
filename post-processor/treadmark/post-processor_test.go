@@ -148,6 +148,7 @@ func TestPostProcessCollect(t *testing.T) {
 			t.Errorf("artifact files missing %s:\n%s", want, joined)
 		}
 	}
+	assertFilesListedOnce(t, files)
 	if !strings.HasPrefix(art.Id(), "alma10-treadmark-") {
 		t.Fatalf("artifact id: %s", art.Id())
 	}
@@ -177,6 +178,63 @@ func TestPostProcessCollect(t *testing.T) {
 	sum, _, _ := metadata.FileSHA256(filepath.Join(dir, metadata.SidecarName))
 	if !strings.Contains(string(sums), sum+"  metadata.json") {
 		t.Fatal("SHA256SUMS does not match the final metadata.json")
+	}
+}
+
+// assertFilesListedOnce fails if any path (or basename — the manifest
+// post-processor's strip_path collapses to basenames) appears more than once.
+func assertFilesListedOnce(t *testing.T, files []string) {
+	t.Helper()
+	byBase := map[string]int{}
+	for _, f := range files {
+		byBase[filepath.Base(f)]++
+	}
+	for base, n := range byBase {
+		if n != 1 {
+			t.Errorf("file %s listed %d times in artifact files: %v", base, n, files)
+		}
+	}
+}
+
+// The observed holy-qcow duplication: when the input artifact already lists
+// the bundle files (e.g. a second treadmark post-processor over the same
+// output_dir), each bundle file must still appear exactly once in Files().
+func TestPostProcessCollectNoDuplicateBundleFiles(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "bundle")
+	writeProvisionerBundle(t, dir)
+	img := filepath.Join(t.TempDir(), "alma10-20260904.qcow2")
+	if err := os.WriteFile(img, []byte("QCOW"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p1, err := configure(t, map[string]interface{}{"output_dir": dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _, _, err := p1.PostProcess(context.Background(), testUi(), &fakeArtifact{files: []string{img}, id: "alma10"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFilesListedOnce(t, first.Files())
+
+	p2, err := configure(t, map[string]interface{}{"output_dir": dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, _, err := p2.PostProcess(context.Background(), testUi(), first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := second.Files()
+	assertFilesListedOnce(t, files)
+	if len(files) != len(first.Files()) {
+		t.Errorf("chained run changed the file list:\nfirst:  %v\nsecond: %v", first.Files(), files)
+	}
+	joined := strings.Join(files, "\n")
+	for _, want := range []string{img, "baseline.db", "metadata.json", "SHA256SUMS"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("artifact files missing %s:\n%s", want, joined)
+		}
 	}
 }
 

@@ -59,6 +59,31 @@ func TestArtifactSemantics(t *testing.T) {
 	}
 }
 
+func TestFilesDeduplicated(t *testing.T) {
+	a := &Artifact{
+		InputFiles: []string{
+			"/img/alma10.qcow2",
+			"/out/baseline.db",
+			"/out/./metadata.json", // spelling variant of a bundle file
+		},
+		BundleFiles: []string{
+			"/out/baseline.db",
+			"/out/metadata.json",
+			"/out/SHA256SUMS",
+		},
+	}
+	got := a.Files()
+	want := []string{"/img/alma10.qcow2", "/out/baseline.db", "/out/./metadata.json", "/out/SHA256SUMS"}
+	if len(got) != len(want) {
+		t.Fatalf("files: want %v, got %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("files[%d]: want %s, got %v", i, want[i], got)
+		}
+	}
+}
+
 func TestArtifactNoInput(t *testing.T) {
 	a := &Artifact{BaselineSHA: "abc"}
 	if got := a.Id(); got != "treadmark-abc" {

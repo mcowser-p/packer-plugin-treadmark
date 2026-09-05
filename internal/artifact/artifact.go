@@ -6,6 +6,7 @@ package artifact
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // BuilderID identifies artifacts produced by this plugin.
@@ -34,10 +35,26 @@ func (a *Artifact) BuilderId() string {
 	return BuilderID
 }
 
+// Files returns the input artifact's files followed by the bundle files,
+// deduplicated (first occurrence wins). InputFiles can already contain the
+// bundle — a chained treadmark post-processor, or a builder artifact that
+// enumerates a directory holding output_dir — and without the dedupe every
+// bundle file is reported twice to downstream consumers like manifest.
 func (a *Artifact) Files() []string {
+	seen := make(map[string]bool, len(a.InputFiles)+len(a.BundleFiles))
 	out := make([]string, 0, len(a.InputFiles)+len(a.BundleFiles))
-	out = append(out, a.InputFiles...)
-	out = append(out, a.BundleFiles...)
+	add := func(files []string) {
+		for _, f := range files {
+			key := filepath.Clean(f)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, f)
+		}
+	}
+	add(a.InputFiles)
+	add(a.BundleFiles)
 	return out
 }
 

@@ -334,7 +334,11 @@ func (p *Provisioner) Provision(ctx context.Context, ui packersdk.Ui, comm packe
 }
 
 // resolveGuest returns the guest OS and arch, probing over the communicator
-// when the config leaves either on auto.
+// when the config leaves either on auto. The probes run with stderr captured
+// rather than surfaced: each one failing is the expected outcome on the other
+// OS (uname under a PowerShell DefaultShell prints a multi-line
+// CommandNotFoundException), so their noise only ever reaches the user inside
+// the error when both probes fail.
 func (p *Provisioner) resolveGuest(ctx context.Context, r *runner) (string, string, error) {
 	c := &p.config
 	osName, arch := c.OS, c.Arch
@@ -345,7 +349,7 @@ func (p *Provisioner) resolveGuest(ctx context.Context, r *runner) (string, stri
 		return osName, arch, nil
 	}
 
-	out, code, err := r.capture(ctx, "uname -s -m", 30*time.Second)
+	out, unameStderr, code, err := r.captureQuiet(ctx, "uname -s -m", 30*time.Second)
 	if err == nil && code == 0 && strings.Contains(out, "Linux") {
 		if osName == "windows" {
 			return "", "", fmt.Errorf("os = windows configured but the guest answers to uname as Linux")
@@ -368,7 +372,7 @@ func (p *Provisioner) resolveGuest(ctx context.Context, r *runner) (string, stri
 		return "linux", arch, nil
 	}
 
-	out, code, err = r.capture(ctx, `cmd /c "echo %OS% %PROCESSOR_ARCHITECTURE%"`, 30*time.Second)
+	out, cmdStderr, code, err := r.captureQuiet(ctx, `cmd /c "echo %OS% %PROCESSOR_ARCHITECTURE%"`, 30*time.Second)
 	if err == nil && code == 0 && strings.Contains(out, "Windows_NT") {
 		if osName == "linux" {
 			return "", "", fmt.Errorf("os = linux configured but the guest reports Windows_NT")
@@ -381,7 +385,31 @@ func (p *Provisioner) resolveGuest(ctx context.Context, r *runner) (string, stri
 		}
 		return "windows", arch, nil
 	}
-	return "", "", fmt.Errorf("could not detect the guest OS (uname and cmd both failed); set os = \"linux\" or \"windows\" explicitly")
+	return "", "", fmt.Errorf("could not detect the guest OS (uname and cmd both failed); set os = \"linux\" or \"windows\" explicitly%s", probeNotes(unameStderr, cmdStderr))
+}
+
+// probeNotes condenses the quiet probes' stderr into a suffix for the
+// detection-failure error — the only place that output can still surface.
+func probeNotes(unameStderr, cmdStderr string) string {
+	var notes []string
+	if s := firstLine(unameStderr); s != "" {
+		notes = append(notes, "uname said: "+s)
+	}
+	if s := firstLine(cmdStderr); s != "" {
+		notes = append(notes, "cmd said: "+s)
+	}
+	if len(notes) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(notes, "; ") + ")"
+}
+
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
 }
 
 func (p *Provisioner) resolveRuntime(osName, arch string) (*resolved, error) {

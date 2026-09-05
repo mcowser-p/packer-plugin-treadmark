@@ -31,27 +31,38 @@ func (r *runner) run(ctx context.Context, cmdline string, timeout time.Duration)
 	return cmd.ExitStatus(), nil
 }
 
-// capture executes cmdline buffering stdout for the caller; stderr is
-// surfaced to the UI.
-func (r *runner) capture(ctx context.Context, cmdline string, timeout time.Duration) (string, int, error) {
+// captureQuiet executes cmdline buffering stdout and stderr for the caller;
+// nothing reaches the UI. Probes whose failure is an expected outcome (uname
+// on a Windows guest) use this so the build log stays clean — the caller
+// decides whether the buffered stderr is worth reporting.
+func (r *runner) captureQuiet(ctx context.Context, cmdline string, timeout time.Duration) (stdout, stderr string, code int, err error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var out, errb bytes.Buffer
 	cmd := &packersdk.RemoteCmd{Command: cmdline, Stdout: &out, Stderr: &errb}
 	if err := r.comm.Start(ctx, cmd); err != nil {
-		return "", -1, fmt.Errorf("starting %q: %w", cmdline, err)
+		return "", "", -1, fmt.Errorf("starting %q: %w", cmdline, err)
 	}
 	done := make(chan int, 1)
 	go func() { done <- cmd.Wait() }()
 	select {
 	case code := <-done:
-		if s := strings.TrimSpace(errb.String()); s != "" {
+		return out.String(), errb.String(), code, nil
+	case <-ctx.Done():
+		return "", "", -1, fmt.Errorf("command %q timed out", cmdline)
+	}
+}
+
+// capture executes cmdline buffering stdout for the caller; stderr from a
+// completed command is surfaced to the UI.
+func (r *runner) capture(ctx context.Context, cmdline string, timeout time.Duration) (string, int, error) {
+	out, stderr, code, err := r.captureQuiet(ctx, cmdline, timeout)
+	if err == nil {
+		if s := strings.TrimSpace(stderr); s != "" {
 			r.ui.Message(s)
 		}
-		return out.String(), code, nil
-	case <-ctx.Done():
-		return "", -1, fmt.Errorf("command %q timed out", cmdline)
 	}
+	return out, code, err
 }
 
 func (r *runner) uploadFile(local, remote string) error {

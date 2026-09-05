@@ -5,6 +5,7 @@ package treadmark
 // host-side bundle is checked. No network, no real guests.
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -28,6 +29,7 @@ type mockStep struct {
 type mockComm struct {
 	t         *testing.T
 	steps     []mockStep
+	stderrs   map[int]string // stderr by command index (sparse)
 	commands  []string
 	uploads   map[string][]byte
 	downloads map[string][]byte
@@ -51,6 +53,9 @@ func (m *mockComm) Start(ctx context.Context, cmd *packersdk.RemoteCmd) error {
 	st := m.steps[i]
 	if st.stdout != "" && cmd.Stdout != nil {
 		_, _ = cmd.Stdout.Write([]byte(st.stdout))
+	}
+	if se := m.stderrs[i]; se != "" && cmd.Stderr != nil {
+		_, _ = cmd.Stderr.Write([]byte(se))
 	}
 	cmd.SetExited(st.exit)
 	return nil
@@ -89,6 +94,27 @@ func testUi() packersdk.Ui {
 		ErrorWriter: io.Discard,
 	}
 }
+
+// recordingUi captures everything the provisioner surfaces, for asserting
+// what does — and does not — reach the packer log.
+func recordingUi() (packersdk.Ui, *bytes.Buffer) {
+	var buf bytes.Buffer
+	return &packersdk.BasicUi{
+		Reader:      strings.NewReader(""),
+		Writer:      &buf,
+		ErrorWriter: &buf,
+	}, &buf
+}
+
+// psCommandNotFound is what a Windows guest with PowerShell as the SSH
+// DefaultShell prints on stderr for the uname probe.
+const psCommandNotFound = `uname : The term 'uname' is not recognized as the name of a cmdlet, function, script file, or operable program.
+At line:1 char:1
++ uname -s -m
++ ~~~~~
+    + CategoryInfo          : ObjectNotFound: (uname:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+`
 
 func infoJSON(dbSHA string) string {
 	return fmt.Sprintf(`{"db_path": "/var/lib/treadmark/baseline.db", "db_sha256": "%s", "db_size_bytes": 6, "tracked_entries": 42, "baseline_created_at": "2026-09-04T10:00:00Z", "baseline_host": "packer-build", "baseline_os": "linux"}`, dbSHA)
@@ -442,5 +468,118 @@ func TestWindowsFlowMSIFailure(t *testing.T) {
 	last := comm.commands[len(comm.commands)-1]
 	if !strings.Contains(last, "Remove-Item") {
 		t.Errorf("staging cleanup did not run; last command: %s", last)
+	}
+}
+
+func TestWindowsFlowAutoDetectProbeQuiet(t *testing.T) {
+	// os = auto against a Windows guest: the uname probe fails with a
+	// multi-line PowerShell CommandNotFoundException on stderr. That noise
+	// must never reach the UI — only the cmd fallback's verdict does.
+	outDir := filepath.Join(t.TempDir(), "out")
+	pkgDir := t.TempDir()
+	msi := filepath.Join(pkgDir, "treadmark-0.11.0.msi")
+	if err := os.WriteFile(msi, []byte("fake-msi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &Provisioner{}
+	if err := p.Prepare(map[string]interface{}{
+		"install_method": "msi",
+		"package_path":   msi,
+		"skip_verify":    true,
+		"output_dir":     outDir,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	winInfo := strings.ReplaceAll(infoJSON(""), "linux", "windows")
+	steps := []mockStep{
+		{1, ""},                     // uname probe: PowerShell can't find it
+		{0, "Windows_NT AMD64\r\n"}, // cmd fallback
+		{0, ""},                     // staging New-Item
+		{0, ""},                     // install.ps1
+		{0, "treadmark 0.11.0\n"},   // version.ps1
+		{0, ""},                     // init.ps1
+		{0, winInfo},                // info.ps1
+		{0, ""},                     // stage-db.ps1
+		{0, ""},                     // cleanup Remove-Item
+	}
+	comm := newMockComm(t, steps, map[string][]byte{
+		"C:/Windows/Temp/packer-treadmark/baseline.db": []byte("WINDB"),
+	})
+	comm.stderrs = map[int]string{0: psCommandNotFound}
+
+	ui, log := recordingUi()
+	if err := p.Provision(context.Background(), ui, comm, map[string]interface{}{}); err != nil {
+		t.Fatal(err)
+	}
+
+	wantCmds := []string{
+		`uname -s -m`,
+		`cmd /c "echo %OS% %PROCESSOR_ARCHITECTURE%"`,
+		`powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path 'C:\Windows\Temp\packer-treadmark' | Out-Null"`,
+		`powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Windows\Temp\packer-treadmark\install.ps1"`,
+		`powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Windows\Temp\packer-treadmark\version.ps1"`,
+		`powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Windows\Temp\packer-treadmark\init.ps1"`,
+		`powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Windows\Temp\packer-treadmark\info.ps1"`,
+		`powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Windows\Temp\packer-treadmark\stage-db.ps1"`,
+		`powershell -NoProfile -Command "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue -Path 'C:\Windows\Temp\packer-treadmark'"`,
+	}
+	if len(comm.commands) != len(wantCmds) {
+		t.Fatalf("command count %d != %d:\n%s", len(comm.commands), len(wantCmds), strings.Join(comm.commands, "\n"))
+	}
+	for i := range wantCmds {
+		if comm.commands[i] != wantCmds[i] {
+			t.Errorf("command %d:\n got %s\nwant %s", i, comm.commands[i], wantCmds[i])
+		}
+	}
+
+	for _, frag := range []string{"not recognized", "CommandNotFoundException"} {
+		if strings.Contains(log.String(), frag) {
+			t.Errorf("probe stderr leaked into the UI (%q):\n%s", frag, log.String())
+		}
+	}
+	if !strings.Contains(log.String(), "guest is windows/amd64") {
+		t.Errorf("expected detection verdict in the UI:\n%s", log.String())
+	}
+}
+
+func TestResolveGuestBothProbesFailSurfacesStderr(t *testing.T) {
+	// When detection genuinely fails, the probes' quiet stderr is the only
+	// evidence — the first line of each must land in the returned error.
+	p := &Provisioner{}
+	if err := p.Prepare(map[string]interface{}{}); err != nil {
+		t.Fatal(err)
+	}
+
+	steps := []mockStep{
+		{1, ""}, // uname probe
+		{1, ""}, // cmd probe
+	}
+	comm := newMockComm(t, steps, nil)
+	comm.stderrs = map[int]string{
+		0: psCommandNotFound,
+		1: "sh: cmd: not found\n",
+	}
+
+	ui, log := recordingUi()
+	err := p.Provision(context.Background(), ui, comm, map[string]interface{}{})
+	if err == nil {
+		t.Fatal("want detection failure, got success")
+	}
+	for _, frag := range []string{
+		"could not detect the guest OS",
+		"uname said: uname : The term 'uname' is not recognized as the name of a cmdlet, function, script file, or operable program.",
+		"cmd said: sh: cmd: not found",
+	} {
+		if !strings.Contains(err.Error(), frag) {
+			t.Errorf("error missing %q: %v", frag, err)
+		}
+	}
+	if strings.Contains(err.Error(), "At line:1") {
+		t.Errorf("error should carry only the first stderr line: %v", err)
+	}
+	if log.Len() != 0 {
+		t.Errorf("nothing should reach the UI before detection fails:\n%s", log.String())
 	}
 }
